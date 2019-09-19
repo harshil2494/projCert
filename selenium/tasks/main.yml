@@ -1,0 +1,84 @@
+
+
+
+
+
+
+
+
+---
+- name: Install packages
+  yum:
+    name: "{{ item }}"
+    state: present
+  with_items:
+    - unzip
+    - maven
+    - firefox
+    - java-1.8.0-openjdk
+#    - xvfb
+
+- name: create directory
+  file: "path=/opt/selenium state=directory recurse=yes"
+  tags: [configuration, selenium, selenium-create-directory]
+
+- name: Download Selenium
+  get_url:
+    url: "http://selenium-release.storage.googleapis.com/{{ selenium_version | regex_replace('\\.[0-9]+$', '') }}/selenium-server-standalone-{{ selenium_version }}.jar"
+    dest: "/opt/selenium/selenium-server-standalone-{{ selenium_version }}.jar"
+  tags: [configuration, selenium, selenium-download]
+
+- name: Install Chrome (if configured, RedHat)
+  yum:
+    name: https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm
+    state: present
+#    tags: [configuration, selenium, selenium-chrome]
+- name: Get the latest release for chromedriver
+  uri:
+    url: https://chromedriver.storage.googleapis.com/LATEST_RELEASE
+    return_content: yes
+  register: chromedriver_latest
+  tags: [configuration, selenium, selenium-chrome]
+
+- name: Install chromedriver
+  unarchive:
+    src: "https://chromedriver.storage.googleapis.com/{{ chromedriver_latest.content | trim }}/chromedriver_linux64.zip"
+    dest: /usr/bin
+    mode: 0755
+    copy: no
+
+- name: Install xvfb
+  package: name=xorg-x11-server-Xvfb
+
+- name: Install init script
+  template:
+    src: "selenium-init-{{ ansible_os_family }}.j2"
+    dest: /etc/init.d/selenium
+    owner: root
+    group: root
+    mode: 0755
+  when: "ansible_service_mgr != 'systemd'"
+
+
+- name: Install systemd unit file (for systemd systems)
+  template:
+    src: "selenium-unit.j2"
+    dest: /etc/systemd/system/selenium.service
+    owner: root
+    group: root
+    mode: 0755
+  when: "ansible_service_mgr == 'systemd'"
+  tags: [configuration, selenium, selenium-install]
+
+- name: Register systemd service status (for systemd systems)
+  shell: 'systemctl status selenium | grep "active (running)"'
+  when: "ansible_service_mgr == 'systemd'"
+  register: selenium_running
+  ignore_errors: yes
+  changed_when: false  
+  tags: [configuration, selenium, selenium-xvfb]
+
+
+- name: Ensure selenium is running
+  service: name=selenium state=started enabled=yes
+  tags: [configuration, selenium, selenium-run]
